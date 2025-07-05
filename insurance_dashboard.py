@@ -130,20 +130,25 @@ def process_data(df):
         date_columns = ['RCVD', 'EFF DATE', 'Effective Date']
         for col in date_columns:
             if col in df.columns:
-                df[col] = pd.to_datetime(df[col], errors='coerce')
-                
-                # Handle invalid dates by setting them to a reasonable default
-                # For records with invalid dates, use the EFF DATE if available, or set to today
-                if col == 'RCVD' and df[col].isna().any():
-                    # If RCVD is missing but EFF DATE exists, use EFF DATE
-                    if 'EFF DATE' in df.columns:
-                        mask = df[col].isna() & df['EFF DATE'].notna()
-                        df.loc[mask, col] = df.loc[mask, 'EFF DATE']
+                # First, ensure the column exists and has data
+                if not df[col].empty:
+                    df[col] = pd.to_datetime(df[col], errors='coerce')
                     
-                    # For remaining invalid dates, set to a reasonable default (today)
-                    remaining_invalid = df[col].isna()
-                    if remaining_invalid.any():
-                        df.loc[remaining_invalid, col] = pd.Timestamp.now()
+                    # Handle invalid dates by setting them to a reasonable default
+                    # For records with invalid dates, use the EFF DATE if available, or set to today
+                    if col == 'RCVD' and df[col].isna().any():
+                        # If RCVD is missing but EFF DATE exists, use EFF DATE
+                        if 'EFF DATE' in df.columns and not df['EFF DATE'].empty:
+                            mask = df[col].isna() & df['EFF DATE'].notna()
+                            df.loc[mask, col] = df.loc[mask, 'EFF DATE']
+                        
+                        # For remaining invalid dates, set to a reasonable default (today)
+                        remaining_invalid = df[col].isna()
+                        if remaining_invalid.any():
+                            df.loc[remaining_invalid, col] = pd.Timestamp.now()
+                else:
+                    # If column is empty, create with today's date
+                    df[col] = pd.Timestamp.now()
         
         # Clean up and standardize LOB column
         df['LOB'] = df['LOB'].fillna('Unknown').astype(str)
@@ -173,7 +178,16 @@ def process_data(df):
         df['WC_Class_Code'] = df['WC_Class_Code'].fillna('Unknown')
         
         # Add month-year column for trending
-        df['Month_Year'] = df['RCVD'].dt.to_period('M')
+        try:
+            if 'RCVD' in df.columns and not df['RCVD'].empty:
+                # Ensure RCVD is datetime before using .dt accessor
+                df['RCVD'] = pd.to_datetime(df['RCVD'], errors='coerce')
+                df['Month_Year'] = df['RCVD'].dt.to_period('M')
+            else:
+                df['Month_Year'] = pd.Period.now('M')
+        except Exception as e:
+            # Fallback: create Month_Year with current month
+            df['Month_Year'] = pd.Period.now('M')
         
         return df
     except Exception as e:
@@ -826,17 +840,32 @@ def main():
                                     list(date_options.keys()),
                                     index=0)  # Default to "All Time"
     
+    # Ensure RCVD is datetime for date range calculations
+    try:
+        df['RCVD'] = pd.to_datetime(df['RCVD'], errors='coerce')
+        min_date = df['RCVD'].min()
+        max_date = df['RCVD'].max()
+        
+        # If dates are invalid, use default range
+        if pd.isna(min_date) or pd.isna(max_date):
+            min_date = pd.Timestamp.now() - pd.Timedelta(days=365)
+            max_date = pd.Timestamp.now()
+    except Exception as e:
+        # Default date range if there's an error
+        min_date = pd.Timestamp.now() - pd.Timedelta(days=365)
+        max_date = pd.Timestamp.now()
+    
     if selected_range == "Custom Range":
         date_range = st.sidebar.date_input(
             "Select Custom Date Range",
-            value=(df['RCVD'].min(), df['RCVD'].max()),
-            min_value=df['RCVD'].min(),
-            max_value=df['RCVD'].max()
+            value=(min_date, max_date),
+            min_value=min_date,
+            max_value=max_date
         )
     elif selected_range == "All Time":
-        date_range = (df['RCVD'].min(), df['RCVD'].max())
+        date_range = (min_date, max_date)
     else:
-        end_date = df['RCVD'].max()
+        end_date = max_date
         start_date = end_date - date_options[selected_range]
         date_range = (start_date, end_date)
     
@@ -902,12 +931,21 @@ def main():
             )
         
         # Apply filters including class codes
-        mask = (
-            (df['RCVD'].dt.date >= pd.to_datetime(date_range[0]).date()) &
-            (df['RCVD'].dt.date <= pd.to_datetime(date_range[1]).date()) &
-            (df['LOB'].isin(selected_lobs)) &
-            (df['Source_Sheet'].isin(selected_sheets))
-        )
+        try:
+            # Ensure RCVD is datetime before filtering
+            df['RCVD'] = pd.to_datetime(df['RCVD'], errors='coerce')
+            mask = (
+                (df['RCVD'].dt.date >= pd.to_datetime(date_range[0]).date()) &
+                (df['RCVD'].dt.date <= pd.to_datetime(date_range[1]).date()) &
+                (df['LOB'].isin(selected_lobs)) &
+                (df['Source_Sheet'].isin(selected_sheets))
+            )
+        except Exception as e:
+            # Fallback: just filter by LOB and Source_Sheet
+            mask = (
+                (df['LOB'].isin(selected_lobs)) &
+                (df['Source_Sheet'].isin(selected_sheets))
+            )
         
         # Apply WC class code filter if specific codes are selected
         if 'WC' in selected_lobs and "All" not in selected_class_codes:
@@ -936,12 +974,21 @@ def main():
             mask = mask & wc_mask
     else:
         # Apply filters without class codes
-        mask = (
-            (df['RCVD'].dt.date >= pd.to_datetime(date_range[0]).date()) &
-            (df['RCVD'].dt.date <= pd.to_datetime(date_range[1]).date()) &
-            (df['LOB'].isin(selected_lobs)) &
-            (df['Source_Sheet'].isin(selected_sheets))
-        )
+        try:
+            # Ensure RCVD is datetime before filtering
+            df['RCVD'] = pd.to_datetime(df['RCVD'], errors='coerce')
+            mask = (
+                (df['RCVD'].dt.date >= pd.to_datetime(date_range[0]).date()) &
+                (df['RCVD'].dt.date <= pd.to_datetime(date_range[1]).date()) &
+                (df['LOB'].isin(selected_lobs)) &
+                (df['Source_Sheet'].isin(selected_sheets))
+            )
+        except Exception as e:
+            # Fallback: just filter by LOB and Source_Sheet
+            mask = (
+                (df['LOB'].isin(selected_lobs)) &
+                (df['Source_Sheet'].isin(selected_sheets))
+            )
     
     filtered_df = df[mask]
     
