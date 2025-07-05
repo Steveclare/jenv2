@@ -704,18 +704,18 @@ def main():
     if 'df' not in st.session_state:
         st.session_state.df = None
         # Try to load local files first
-        if os.path.exists('combined_submission_log.csv'):
+        if os.path.exists('data/combined_submission_log.csv'):
             try:
                 st.info("Found local CSV file, attempting to load...")
-                df = pd.read_csv('combined_submission_log.csv')
+                df = pd.read_csv('data/combined_submission_log.csv')
                 st.session_state.df = process_data(df)
                 st.success("Loaded local CSV file successfully!")
             except Exception as e:
                 st.error(f"Error loading local CSV: {str(e)}")
-        elif os.path.exists('Evolution Master Submission Log.xlsx'):
+        elif os.path.exists('data/EvolutionMasterSubmissionLog061325.xlsx'):
             try:
                 st.info("Found local Excel file, attempting to load...")
-                df = process_excel_file('Evolution Master Submission Log.xlsx')
+                df = process_excel_file('data/EvolutionMasterSubmissionLog061325.xlsx')
                 if df is not None:
                     st.session_state.df = process_data(df)
                     st.success("Loaded local Excel file successfully!")
